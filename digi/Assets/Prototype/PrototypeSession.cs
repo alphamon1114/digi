@@ -95,6 +95,7 @@ namespace Digi.Prototype
         }
         private void Connected(ulong id)
         {
+            if (id == network.LocalClientId) yaw = network.IsServer ? 180 : 0;
             if (network.IsServer)
             { simulation.AddPlayer(id, id == NetworkManager.ServerClientId); world = simulation.Snapshot(network.LocalClientId); }
             status = "Connected. Host starts the round.";
@@ -158,12 +159,10 @@ namespace Digi.Prototype
                 var actor = world.actors.Find(a => a.id == world.localActor);
                 if (actor != null && actor.kind == 0 && actor.hp > 0)
                 {
-                    var site = world.sites.Where(s => !s.resolved).OrderBy(s => Vector3.Distance(actor.position, PrototypeConfig.Sites[s.id])).FirstOrDefault();
-                    Vector3 goal = site == null ? Vector3.zero : PrototypeConfig.Sites[site.id];
+                    var site = world.sites.Where(s => !s.resolved).OrderBy(s => Vector3.Distance(actor.position, rules.sites[s.id])).FirstOrDefault();
+                    Vector3 goal = site == null ? Vector3.zero : rules.sites[site.id];
                     Vector3 delta = goal - actor.position;
-                    Vector3 autoMove = delta.magnitude > 2 ? delta.normalized : Vector3.zero;
-                    foreach (var rock in PrototypeConfig.Rocks)
-                        if (Vector3.Distance(actor.position + autoMove * 2, rock) < 3) autoMove = Quaternion.Euler(0, 70, 0) * autoMove;
+                    Vector3 autoMove = rules.Steer(actor.position, goal, 2);
                     queued = new InputCommand { x = autoMove.x, z = autoMove.z, yaw = Mathf.Atan2(delta.x, delta.z) * Mathf.Rad2Deg,
                         interact = true, evolve = world.unlock > 0 && world.time < 35 };
                 }
@@ -200,19 +199,24 @@ namespace Digi.Prototype
             if (view == null) { var cameraObject = new GameObject("Third Person Camera", typeof(Camera), typeof(AudioListener)); view = cameraObject.GetComponent<Camera>(); cameraObject.tag = "MainCamera"; }
             view.transform.position = new Vector3(0, 36, -32); view.transform.LookAt(Vector3.zero);
             view.backgroundColor = new Color(.035f, .055f, .09f); view.clearFlags = CameraClearFlags.SolidColor;
-            mapObjects.Add(Shape("Digital arena", PrimitiveType.Cube, new Vector3(0, -.6f, 0), new Vector3(60, 1, 60), new Color(.08f, .16f, .2f)));
-            foreach (var at in PrototypeConfig.Sites) mapObjects.Add(Shape("Evacuation site", PrimitiveType.Cylinder, at + Vector3.up * .04f, new Vector3(8, .06f, 8), new Color(.05f, .65f, .55f)));
+            RenderSettings.fog = true; RenderSettings.fogMode = FogMode.Linear; RenderSettings.fogColor = view.backgroundColor;
+            RenderSettings.fogStartDistance = rules.sightDistance * .7f; RenderSettings.fogEndDistance = rules.sightDistance + 18;
+            view.farClipPlane = rules.mapHalfExtent * 3;
+            float width = rules.mapHalfExtent * 2;
+            mapObjects.Add(Shape("Digital arena", PrimitiveType.Cube, new Vector3(0, -.6f, 0), new Vector3(width, 1, width), new Color(.08f, .16f, .2f)));
+            foreach (var at in rules.sites) mapObjects.Add(Shape("Evacuation site", PrimitiveType.Cylinder, at + Vector3.up * .04f, new Vector3(8, .06f, 8), new Color(.05f, .65f, .55f)));
             mapObjects.Add(Shape("Rescue uplink", PrimitiveType.Cylinder, Vector3.up * .1f, new Vector3(6, .15f, 6), new Color(.25f, .5f, 1)));
-            foreach (var at in PrototypeConfig.Rocks) mapObjects.Add(Shape("Data pillar", PrimitiveType.Cylinder, at + Vector3.up * 2, new Vector3(3.6f, 2, 3.6f), new Color(.12f, .24f, .32f)));
-            for (int i = -30; i <= 30; i += 10)
+            foreach (var at in rules.rocks) mapObjects.Add(Shape("Data pillar", PrimitiveType.Cylinder, at + Vector3.up * (rules.coverHeight / 2), new Vector3(rules.coverRadius * 2, rules.coverHeight / 2, rules.coverRadius * 2), new Color(.12f, .24f, .32f)));
+            for (float i = -rules.mapHalfExtent; i <= rules.mapHalfExtent; i += 10)
             {
-                mapObjects.Add(Shape("Grid X", PrimitiveType.Cube, new Vector3(i, -.085f, 0), new Vector3(.04f, .02f, 60), new Color(.1f, .35f, .4f)));
-                mapObjects.Add(Shape("Grid Z", PrimitiveType.Cube, new Vector3(0, -.085f, i), new Vector3(60, .02f, .04f), new Color(.1f, .35f, .4f)));
+                mapObjects.Add(Shape("Grid X", PrimitiveType.Cube, new Vector3(i, -.085f, 0), new Vector3(.04f, .02f, width), new Color(.1f, .35f, .4f)));
+                mapObjects.Add(Shape("Grid Z", PrimitiveType.Cube, new Vector3(0, -.085f, i), new Vector3(width, .02f, .04f), new Color(.1f, .35f, .4f)));
             }
         }
         private void RenderWorld()
         {
             if (world == null) return;
+            var observer = world.actors.Find(a => a.id == world.localActor);
             foreach (var a in world.actors)
             {
                 if (!models.TryGetValue(a.id, out var go))
@@ -223,7 +227,8 @@ namespace Digi.Prototype
                     nose.transform.localPosition = new Vector3(0, .2f, .55f); nose.transform.localScale = new Vector3(.25f, .25f, .45f);
                     nose.GetComponent<Renderer>().sharedMaterial = go.GetComponent<Renderer>().sharedMaterial;
                 }
-                go.SetActive(a.hp > 0);
+                go.SetActive(a.hp > 0 && (observer == null || a.id == observer.id ||
+                    (Vector3.Distance(observer.position, a.position) <= rules.sightDistance && !rules.BlocksSight(observer.position, a.position))));
                 go.transform.position = Vector3.Lerp(go.transform.position, a.position + Vector3.up * a.scale, Mathf.Min(1, Time.unscaledDeltaTime * 20));
                 go.transform.rotation = Quaternion.Euler(0, a.yaw, 0); go.transform.localScale = Vector3.one * a.scale;
                 Color c = a.kind == 1 ? new Color(.85f, .15f, .25f) : a.kind == 0 ? (a.stage > 0 ? Color.cyan : new Color(.25f, .6f, 1)) : a.kind == 2 ? Color.green : a.kind == 3 ? new Color(1, .65f, .1f) : new Color(.7f, .25f, .9f);
@@ -276,6 +281,7 @@ namespace Digi.Prototype
                 }
                 GUILayout.Label("WASD move | Hold RMB look/aim | LMB attack");
                 GUILayout.Label("Hold E evacuate / rescue | Q evolve | Esc cursor");
+                GUILayout.Label("Habitats: NW / NE / South | Rescue: center");
                 GUILayout.Label(world.rescueReady ? "RESCUE READY - hold E at central blue uplink" : "Contest wild sites / hunt to grow");
                 foreach (var s in world.sites) GUILayout.Label($"Site {s.id + 1}: {(s.resolved ? "Resolved" : (s.progress / rules.evacuationSeconds * 100).ToString("0") + "%")}");
                 if (world.sites.Count > 0) GUILayout.Label($"Rescue {world.rescue:0}/{rules.rescueSeconds:0}s");
@@ -286,7 +292,8 @@ namespace Digi.Prototype
             var local = world.actors.Find(a => a.id == world.localActor);
             foreach (var a in world.actors)
             {
-                if (a.hp <= 0 || (local != null && Vector3.Distance(local.position, a.position) > 22)) continue;
+                if (a.hp <= 0 || !models.TryGetValue(a.id, out var visible) || !visible.activeSelf ||
+                    (local != null && Vector3.Distance(local.position, a.position) > 18)) continue;
                 Vector3 point = view.WorldToScreenPoint(a.position + Vector3.up * (a.scale * 2 + .6f));
                 if (Physics.Linecast(view.transform.position, a.position + Vector3.up * a.scale, out var sight)
                     && models.TryGetValue(a.id, out var body) && sight.collider.transform.root != body.transform) continue;

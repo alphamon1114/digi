@@ -20,6 +20,21 @@ namespace Digi.Prototype.Editor
             var rules = ScriptableObject.CreateInstance<PrototypeConfig>();
             try
             {
+                Check(rules.sites.Length == 3 && rules.mapHalfExtent == 60, "expanded arena retains three habitats");
+                Check(Vector3.Distance(rules.villainSpawn, rules.survivorSpawn) > rules.sightDistance * 2, "initial factions outside mutual sight range");
+                Check(rules.villain[0].speed > rules.survivors[0].speed && rules.villain[0].speed < rules.survivors[1].speed, "initial villain can disengage rookies, not outrun Champions");
+                var blocker = rules.rocks[0];
+                Check(rules.BlocksSight(blocker - Vector3.right * 7, blocker + Vector3.right * 7), "large cover blocks sight and attacks");
+                Check(!rules.BlocksSight(rules.villainSpawn, rules.sites[0]), "opening hunt path is unobstructed");
+                Check(Vector3.Distance(rules.Constrain(blocker), blocker) >= rules.coverRadius + .59f, "server collision matches expanded cover");
+                Check(rules.Constrain(new Vector3(200, 0, 0)).x == rules.mapHalfExtent - 1, "expanded arena boundary enforced");
+                var opening = new MatchSimulation(rules); var openingVillain = opening.AddPlayer(0, true); opening.AddPlayer(1, false); opening.Start(false);
+                foreach (var target in opening.Actors.Where(a => a.kind == 2 && a.site == 0).ToArray())
+                { openingVillain.position = target.position - Vector3.forward * 2; Hold(opening, 0, 1.7f, attack: true); }
+                Check(openingVillain.stage == 1 && openingVillain.data == 80, "one contested habitat supplies first permanent evolution");
+                var traversal = new MatchSimulation(rules); traversal.AddPlayer(0, true); traversal.Start(true);
+                Step(traversal, 120);
+                Check(traversal.Outcome.Contains("rescue complete"), "bots can traverse expanded cover and finish a round");
                 var s = new MatchSimulation(rules); var v = s.AddPlayer(0, true); var p = s.AddPlayer(1, false); s.AddPlayer(2, false); s.AddPlayer(3, false);
                 Check(s.AddPlayer(4, false) == null, "fifth player rejected"); Check(s.Start(false), "start 1v3");
                 Check(s.AddPlayer(9, false) == null, "late join rejected");
@@ -30,7 +45,7 @@ namespace Digi.Prototype.Editor
                 Check(Vector3.Distance(initial, p.position) <= rules.survivors[0].speed * .05f + .001f, "speed bounded");
                 Step(s, 1); initial = p.position; Step(s, 1); Check(initial == p.position, "stale input expires");
 
-                p.position = PrototypeConfig.Sites[0];
+                p.position = rules.sites[0];
                 Hold(s, 1, .2f, interact: true);
                 Check(s.ReportSequence == 1 && s.Sites[0].progress > 0, "report only when actual progress");
                 var villainView = JsonUtility.ToJson(s.Snapshot(0)); var survivorView = JsonUtility.ToJson(s.Snapshot(1));
@@ -76,7 +91,7 @@ namespace Digi.Prototype.Editor
                 Step(hunt, 1); Check(hunter.stage == 2, "villain form persists");
 
                 var escape = new MatchSimulation(rules); escape.AddPlayer(0, true); var runner = escape.AddPlayer(1, false); escape.Start(false);
-                foreach (var site in PrototypeConfig.Sites) { runner.position = site; Hold(escape, 1, 13, interact: true); }
+                foreach (var site in rules.sites) { runner.position = site; Hold(escape, 1, 13, interact: true); }
                 Check(escape.RescueReady, "all sites resolve"); runner.position = Vector3.zero;
                 Hold(escape, 1, 21, interact: true); Check(escape.Outcome.Contains("rescue complete"), "round ends in rescue victory");
                 int xp = escape.TeamXP; Hold(escape, 1, 2, attack: true); Check(escape.TeamXP == xp, "finished match frozen");

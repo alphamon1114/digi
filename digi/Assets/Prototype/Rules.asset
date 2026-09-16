@@ -17,14 +17,14 @@ MonoBehaviour:
   - name: MetalTyrannomon
     threshold: 0
     health: 360
-    speed: 5.3
+    speed: 6.2
     scale: 1.5
     damage: 28
     range: 3.8
     cooldown: 0.8
     attack: 0
   - name: Machinedramon
-    threshold: 120
+    threshold: 80
     health: 480
     speed: 5.1
     scale: 2
@@ -101,3 +101,23 @@ MonoBehaviour:
   deployCooldown: 5
   sensorLimit: 3
   reporter: 0
+  mapHalfExtent: 60
+  coverRadius: 5
+  coverHeight: 9
+  sightDistance: 32
+  villainSpawn: {x: -38, y: 0, z: 48}
+  survivorSpawn: {x: 0, y: 0, z: -48}
+  sites:
+  - {x: -36, y: 0, z: 32}
+  - {x: 36, y: 0, z: 32}
+  - {x: 0, y: 0, z: -40}
+  rocks:
+  - {x: -18, y: 0, z: 20}
+  - {x: 18, y: 0, z: 20}
+  - {x: 0, y: 0, z: 20}
+  - {x: -18, y: 0, z: -18}
+  - {x: 18, y: 0, z: -18}
+  - {x: 0, y: 0, z: -18}
+  - {x: -35, y: 0, z: 5}
+  - {x: 35, y: 0, z: 5}
+  - {x: 0, y: 0, z: 44}

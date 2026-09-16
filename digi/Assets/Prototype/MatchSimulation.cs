@@ -59,7 +59,7 @@ namespace Digi.Prototype
             {
                 Sites.Add(new SiteState { id = i });
                 for (int j = 0; j < rules.wildPerSite; j++)
-                    Spawn(2, PrototypeConfig.Sites[i] + new Vector3((j - .5f) * 2, 0, 0), 45, i);
+                    Spawn(2, Rules.sites[i] + new Vector3((j - .5f) * 2, 0, 0), 45, i);
             }
         }
         public ActorState AddPlayer(ulong owner, bool villain, bool bot = false)
@@ -67,7 +67,7 @@ namespace Digi.Prototype
             if (Started || Actors.Any(a => a.kind <= 1 && a.owner == owner)) return null;
             if (villain ? Actors.Any(a => a.kind == 1) : Actors.Count(a => a.kind == 0) >= 3) return null;
             int slot = Actors.Count(a => a.kind == 0);
-            var a = Spawn(villain ? 1 : 0, villain ? new Vector3(0, 0, 27) : new Vector3(-4 + slot * 4, 0, -6), 1);
+            var a = Spawn(villain ? 1 : 0, villain ? Rules.villainSpawn : Rules.survivorSpawn + new Vector3(-6 + slot * 6, 0, 0), 1);
             a.owner = owner; a.bot = bot; a.energy = Rules.energyMaximum;
             a.label = villain ? Rules.villain[0].name : (bot ? "BOT " : "P ") + (slot + 1);
             ApplyForm(a, 0, true);
@@ -124,10 +124,7 @@ namespace Digi.Prototype
                 if (Time - a.lastInput > .4f && !a.bot) a.input = new InputCommand { yaw = a.yaw };
                 a.yaw = a.input.yaw;
                 Vector3 p = a.position + new Vector3(a.input.x, 0, a.input.z) * Form(a).speed * dt;
-                p.x = Mathf.Clamp(p.x, -29, 29); p.z = Mathf.Clamp(p.z, -29, 29);
-                foreach (var rock in PrototypeConfig.Rocks)
-                    if (Vector3.Distance(p, rock) < 2.4f) p = rock + (p - rock).normalized * 2.4f;
-                a.position = p;
+                a.position = Rules.Constrain(p);
                 if (a.kind == 0)
                 {
                     if (a.stage > 0)
@@ -146,15 +143,15 @@ namespace Digi.Prototype
                 var target = Actors.Where(p => p.kind <= 1 && p.hp > 0).OrderBy(p => Vector3.Distance(p.position, a.position)).FirstOrDefault();
                 if (target == null) continue;
                 float d = Vector3.Distance(target.position, a.position);
-                if (d < 8 && d > 1.5f) a.position = Vector3.MoveTowards(a.position, target.position, dt * 2.5f);
-                if (d < 2 && Time >= a.nextAttack) { Hurt(target, 5); a.nextAttack = Time + 1.5f; }
+                if (d < 8 && d > 1.5f) a.position = Rules.Constrain(a.position + Rules.Steer(a.position, target.position, 1.5f) * dt * 2.5f);
+                if (d < 2 && Time >= a.nextAttack && !Rules.BlocksSight(a.position, target.position)) { Hurt(target, 5); a.nextAttack = Time + 1.5f; }
             }
             foreach (var site in Sites)
             {
                 if (site.resolved) continue;
                 var wild = Actors.Where(a => a.kind == 2 && a.site == site.id && a.hp > 0).ToArray();
                 if (wild.Length == 0) { site.resolved = true; continue; }
-                Vector3 at = PrototypeConfig.Sites[site.id];
+                Vector3 at = Rules.sites[site.id];
                 bool working = Actors.Any(a => a.kind == 0 && a.hp > 0 && a.input.interact && Vector3.Distance(a.position, at) <= Rules.evacuationRadius);
                 bool contested = Actors.Any(a => a.kind == 1 && a.hp > 0 && Vector3.Distance(a.position, at) <= Rules.contestRadius);
                 if (!working || contested) continue;
@@ -199,7 +196,7 @@ namespace Digi.Prototype
             {
                 Vector3 delta = t.position - a.position; float distance = delta.magnitude;
                 if (distance > f.range || Vector3.Dot(delta.normalized, forward) < (f.attack == AttackStyle.Beam ? .95f : .35f)) continue;
-                bool blocked = PrototypeConfig.Rocks.Any(r => DistanceToSegment(r, a.position, t.position) < 1.8f);
+                bool blocked = Rules.BlocksSight(a.position, t.position);
                 if (blocked) continue;
                 Hurt(t, f.damage);
                 if (t.hp <= 0)
@@ -213,21 +210,17 @@ namespace Digi.Prototype
             }
         }
         private void Hurt(ActorState a, float damage) { a.hp = Mathf.Max(0, a.hp - damage); a.hurtUntil = Time + .2f; }
-        private static float DistanceToSegment(Vector3 p, Vector3 a, Vector3 b)
-        { Vector3 d = b - a; return Vector3.Distance(p, a + d * Mathf.Clamp01(Vector3.Dot(p - a, d) / Mathf.Max(.001f, d.sqrMagnitude))); }
         private void Think(ActorState a)
         {
-            var enemy = Actors.Where(t => t.hp > 0 && (t.kind == 1 || t.kind == 3 || t.kind == 4)).OrderBy(t => Vector3.Distance(t.position, a.position)).FirstOrDefault();
+            var enemy = Actors.Where(t => t.hp > 0 && (t.kind == 1 || t.kind == 3 || t.kind == 4)
+                && !Rules.BlocksSight(a.position, t.position)).OrderBy(t => Vector3.Distance(t.position, a.position)).FirstOrDefault();
             Vector3 target = Vector3.zero;
-            var site = Sites.Where(s => !s.resolved).OrderBy(s => Vector3.Distance(a.position, PrototypeConfig.Sites[s.id])).FirstOrDefault();
-            if (site != null) target = PrototypeConfig.Sites[site.id];
+            var site = Sites.Where(s => !s.resolved).OrderBy(s => Vector3.Distance(a.position, Rules.sites[s.id])).FirstOrDefault();
+            if (site != null) target = Rules.sites[site.id];
             bool fight = enemy != null && Vector3.Distance(enemy.position, a.position) < 7;
             if (fight) target = enemy.position;
             Vector3 d = target - a.position;
-            Vector3 move = d.magnitude > (fight ? Form(a).range * .8f : 2) ? d.normalized : Vector3.zero;
-            // Tangential steering around the handful of deterministic map obstacles.
-            foreach (var r in PrototypeConfig.Rocks)
-                if (Vector3.Distance(a.position + move * 2, r) < 3) move = Quaternion.Euler(0, 70, 0) * move;
+            Vector3 move = Rules.Steer(a.position, target, fight ? Form(a).range * .8f : 2);
             a.input = new InputCommand { x = move.x, z = move.z, yaw = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg,
                 attack = fight, evolve = fight, interact = !fight };
         }

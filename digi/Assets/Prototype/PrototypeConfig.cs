@@ -22,8 +22,8 @@ namespace Digi.Prototype
     {
         public Shader surfaceShader;
         public FormStats[] villain = {
-            new FormStats("MetalTyrannomon", 0, 360, 5.3f, 1.5f, 28, 3.8f, .8f, AttackStyle.Strike),
-            new FormStats("Machinedramon", 120, 480, 5.1f, 2, 35, 6, 1, AttackStyle.Cone),
+            new FormStats("MetalTyrannomon", 0, 360, 6.2f, 1.5f, 28, 3.8f, .8f, AttackStyle.Strike),
+            new FormStats("Machinedramon", 80, 480, 5.1f, 2, 35, 6, 1, AttackStyle.Cone),
             new FormStats("Chaosdramon", 280, 600, 5.5f, 2.5f, 48, 13, 1.2f, AttackStyle.Beam)
         };
         public FormStats[] survivors = {
@@ -41,7 +41,45 @@ namespace Digi.Prototype
         public float sensorRadius = 12, sensorInterval = 2, markerLifetime = 3, deployCooldown = 5;
         public int sensorLimit = 3;
         public ReporterFamily reporter;
-        public static readonly Vector3[] Sites = { new Vector3(-18, 0, 15), new Vector3(18, 0, 15), new Vector3(0, 0, -22) };
-        public static readonly Vector3[] Rocks = { new Vector3(-9, 0, 0), new Vector3(9, 0, 0), new Vector3(0, 0, 12), new Vector3(-10, 0, -13), new Vector3(10, 0, -13) };
+        [Header("Arena / temporary balance D005")]
+        [Min(30)] public float mapHalfExtent = 60;
+        [Min(1)] public float coverRadius = 5, coverHeight = 9;
+        [Min(10)] public float sightDistance = 32;
+        public Vector3 villainSpawn = new Vector3(-38, 0, 48);
+        public Vector3 survivorSpawn = new Vector3(0, 0, -48);
+        public Vector3[] sites = { new Vector3(-36, 0, 32), new Vector3(36, 0, 32), new Vector3(0, 0, -40) };
+        public Vector3[] rocks = {
+            new Vector3(-18, 0, 20), new Vector3(18, 0, 20), new Vector3(0, 0, 20),
+            new Vector3(-18, 0, -18), new Vector3(18, 0, -18), new Vector3(0, 0, -18),
+            new Vector3(-35, 0, 5), new Vector3(35, 0, 5), new Vector3(0, 0, 44)
+        };
+        public bool BlocksSight(Vector3 from, Vector3 to, float clearance = 0)
+        {
+            Vector3 d = to - from;
+            foreach (var rock in rocks)
+            {
+                Vector3 nearest = from + d * Mathf.Clamp01(Vector3.Dot(rock - from, d) / Mathf.Max(.001f, d.sqrMagnitude));
+                if (Vector3.Distance(rock, nearest) < coverRadius + clearance) return true;
+            }
+            return false;
+        }
+        public Vector3 Constrain(Vector3 p)
+        {
+            foreach (var rock in rocks)
+                if (Vector3.Distance(p, rock) < coverRadius + .6f)
+                    p = rock + (p == rock ? Vector3.forward : (p - rock).normalized) * (coverRadius + .6f);
+            float limit = mapHalfExtent - 1;
+            p.x = Mathf.Clamp(p.x, -limit, limit); p.z = Mathf.Clamp(p.z, -limit, limit);
+            return p;
+        }
+        public Vector3 Steer(Vector3 from, Vector3 goal, float stoppingDistance)
+        {
+            Vector3 delta = goal - from;
+            Vector3 move = delta.magnitude > stoppingDistance ? delta.normalized : Vector3.zero;
+            foreach (var rock in rocks)
+                if (Vector3.Distance(from + move * 2, rock) < coverRadius + 1.2f)
+                    move = Quaternion.Euler(0, 70, 0) * move;
+            return move;
+        }
     }
 }
