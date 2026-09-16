@@ -6,6 +6,16 @@
 # See: https://github.com/github/gitignore/tree/main/Global
 #
 .utmp/
+.verification/
+# Unity projects are nested in this repository.
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Oo]bj/
+**/[Bb]uild/
+**/[Bb]uilds/
+**/[Ll]ogs/
+**/[Uu]ser[Ss]ettings/
+**/[Mm]emoryCaptures/
 /[Ll]ibrary/
 /[Tt]emp/
 /[Oo]bj/
